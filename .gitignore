@@ -1,0 +1,35 @@
+# Environment (secrets)
+.env
+.env.*
+!.env.example
+
+# Go build / test
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+coverage.html
+vendor/
+
+# Common binary name when building in backend/
+backend/main
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Runtime: NDJSON log (regenerat de aplicație)
+backend/data/*.jsonl
+
+# Docker local overrides
+docker-compose.override.yml
