@@ -1,130 +1,101 @@
-Backend – Sports News Integration (Go)
-=====================================
+# DNSC Senzor API
 
-## Overview
+API HTTP pentru ingestia alertelor de rețea (JSON) și persistarea lor în fișier JSON Lines (`.jsonl`).
 
-This service periodically fetches sports news articles from an external provider (Pulselive), stores them in PostgreSQL, and synchronizes them with a central system.
+## Pornirea proiectului
 
-The main responsibilities are:
-- fetch latest articles from an external API,
-- map them to an internal model,
-- store them in a database (idempotent upsert),
-- send them to a central management system.
+### Varianta 1: Go local
 
----
-
-## Architecture
-
-The project is structured into a few simple layers:
-
-- `internal/external`  
-  HTTP clients for external providers (currently Pulselive).
-
-- `internal/models`  
-  Data structures and mapping logic:
-  - `ExternalArticleDTO` – raw API response  
-  - `Article` – internal model  
-  - mapping includes a `content_hash` used to detect changes
-
-- `internal/repository`  
-  Database layer (PostgreSQL):
-  - `Upsert` ensures:
-    - insert if new  
-    - update if content changed  
-    - ignore if unchanged
-
-- `internal/services`  
-  Core logic:
-  - `ArticleImportService` – fetches and stores articles  
-  - `ArticleSyncService` – sends articles to the central system
-
-- `internal/scheduler`  
-  Background jobs:
-  - import poller (external → DB)  
-  - sync poller (DB → central system)
-
----
-
-## How it works
-
-### 1. Import (external → DB)
-
-A background job runs periodically:
-- fetches latest articles from Pulselive (paginated),
-- maps them to the internal `Article` model,
-- saves them using upsert logic.
-
-Each run processes up to **N = pageSize × maxPages** articles.  
-This keeps the system focused on recent content while avoiding large requests.
-
----
-
-### 2. Sync (DB → central system)
-
-A separate background job:
-- selects articles with `sync_status = 'pending'` (and some `failed` with limited attempts),
-- sends them via HTTP to the central system,
-- marks them as:
-  - `synced` (on success),
-  - `failed` (on error).
-
-Failed articles are retried in future runs up to a configurable maximum.
-
----
-
-## Design decisions
-
-- **Idempotency**  
-  Articles are re-fetched on every poll.  
-  A `content_hash` ensures updates only happen when content actually changes.
-
-- **Separation of import and sync**  
-  Import continues even if the central system is down.  
-  Sync retries failed articles later, without blocking ingestion.
-
-- **Configurable polling**  
-  Intervals, timeouts, pageSize/maxPages and sync retry limits are configurable via environment variables.
-
-- **Retention**  
-  Articles are kept in the database.  
-  No automatic deletion is implemented in this version.
-
----
-
-## Running locally
-
-The easiest way is with Docker:
-
-```bash
-docker-compose up --build -d
-```
-
-This starts:
-- PostgreSQL (with the schema from `db/init_scripts`),
-- the backend service (built from `backend/Dockerfile` and configured via `.env`).
-
-Once the containers are up:
-- health endpoints are available at `http://localhost:8080/health` and `/healthz`,
-- import and sync pollers run automatically in the background.
-
-To inspect logs:
-
-```bash
-docker-compose logs -f cortex-backend
-```
-
----
-
-## Testing
-
-Basic unit tests are included for:
-- article mapping and hashing (`internal/models/article_test.go`),
-- import service (`internal/services/article_import_test.go`),
-- sync service (`internal/services/article_sync_test.go`).
-
-Run tests from the `backend` directory:
+Din directorul `backend`:
 
 ```bash
 cd backend
-go test ./...
+go run ./cmd
 ```
+
+Serverul ascultă pe portul din variabila `SERVER_PORT` (implicit **8080**), conform fișierului `.env` din rădăcina repository-ului.
+
+### Varianta 2: Docker Compose
+
+Din rădăcina repository-ului (unde se află `docker-compose.yml`):
+
+```bash
+docker compose up --build
+```
+
+Portul host ↔ container este `${SERVER_PORT:-8080}` (vezi `.env`).
+
+## Unde se salvează datele
+
+| Mod de rulare | Fișier / locație |
+|----------------|------------------|
+| **Go local** | `backend/data/network_alerts.jsonl` — calea relativă `data/network_alerts.jsonl` este rezolvată față de directorul `backend/` (vezi `NETWORK_ALERTS_STORAGE_PATH` în `.env`). |
+| **Docker** | În container: `/root/data/network_alerts.jsonl`, mapat la **`./backend/data`** pe host (volum din `docker-compose.yml`). |
+
+Fiecare alertă primită la `POST` este adăugată ca **o linie JSON** (format JSON Lines).
+
+## Documentație API (Swagger)
+
+După ce serverul rulează, deschide în browser:
+
+**http://localhost:8080/swagger**
+
+Acolo poți consulta schema OpenAPI și poți trimite cereri de probă (inclusiv `POST /api/v1/network-alerts`). Specificația brută YAML este disponibilă la:
+
+**http://localhost:8080/openapi.yaml**
+
+## Exemplu: POST alertă de rețea
+
+**URL:** `http://localhost:8080/api/v1/network-alerts`  
+**Header:** `Content-Type: application/json`  
+**Metodă:** `POST`
+
+**Corp (body) exemplu:**
+
+```json
+{
+  "agent_id": "test-postman",
+  "exported_at": "2026-04-01T12:00:00Z",
+  "event": {
+    "timestamp": "2026-04-01T12:00:00Z",
+    "protocol": "TCP",
+    "src_ip": "10.0.0.2",
+    "src_port": 443,
+    "dst_ip": "10.0.0.2",
+    "dst_port": 80,
+    "watchlist_match": "src",
+    "direction": "outbound",
+    "tcp_flags": "S",
+    "packet_size": 100
+  }
+}
+```
+
+**Răspuns la succes:** `201 Created` cu corp `{"status":"created"}`.
+
+**Cu curl:**
+
+```bash
+curl -sS -X POST "http://localhost:8080/api/v1/network-alerts" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "agent_id": "test-postman",
+  "exported_at": "2026-04-01T12:00:00Z",
+  "event": {
+    "timestamp": "2026-04-01T12:00:00Z",
+    "protocol": "TCP",
+    "src_ip": "10.0.0.2",
+    "src_port": 443,
+    "dst_ip": "10.0.0.2",
+    "dst_port": 80,
+    "watchlist_match": "src",
+    "direction": "outbound",
+    "tcp_flags": "S",
+    "packet_size": 100
+  }
+}'
+```
+
+## Health check
+
+- `GET http://localhost:8080/healthz` sau `GET http://localhost:8080/health` → răspuns text `OK`.

@@ -47,6 +47,13 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("error loading configuration: %s", err)
 	}
 
+	// Relative paths are resolved against the backend module root so storage works regardless of process cwd.
+	// Absolute paths (e.g. /root/data/... in Docker) are left unchanged.
+	if cfg.NetworkAlerts.StoragePath != "" && !filepath.IsAbs(cfg.NetworkAlerts.StoragePath) {
+		backendRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFilePath), "..", ".."))
+		cfg.NetworkAlerts.StoragePath = filepath.Clean(filepath.Join(backendRoot, cfg.NetworkAlerts.StoragePath))
+	}
+
 	if cfg.AppSettings.ServerPort == "" {
 		return nil, fmt.Errorf("invalid config: SERVER_PORT must not be empty")
 	}

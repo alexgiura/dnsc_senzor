@@ -1,0 +1,184 @@
+openapi: 3.0.3
+info:
+  title: DNSC Senzor API
+  description: |
+    API pentru ingestia alertelor de rețea trimise de agenți.
+    Fiecare alertă este append-uită ca linie JSON (JSON Lines) în fișierul de stocare.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Dezvoltare locală (port implicit din `SERVER_PORT`)
+
+tags:
+  - name: System
+    description: Sănătate serviciu
+  - name: Network alerts
+    description: Ingestie alerte rețea
+
+paths:
+  /healthz:
+    get:
+      tags: [System]
+      summary: Health check
+      operationId: getHealthz
+      responses:
+        "200":
+          description: Serviciul rulează
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /health:
+    get:
+      tags: [System]
+      summary: Health check (alias)
+      operationId: getHealth
+      responses:
+        "200":
+          description: Serviciul rulează
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /api/v1/network-alerts:
+    post:
+      tags: [Network alerts]
+      summary: Trimite o alertă de rețea
+      description: |
+        Validează payload-ul și append-uiește alerta în fișierul JSONL configurat
+        (`NETWORK_ALERTS_STORAGE_PATH`).
+      operationId: postNetworkAlert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkAlert"
+            example:
+              agent_id: test-postman
+              exported_at: "2026-04-01T12:00:00Z"
+              event:
+                timestamp: "2026-04-01T12:00:00Z"
+                protocol: TCP
+                src_ip: "10.0.0.2"
+                src_port: 443
+                dst_ip: "10.0.0.2"
+                dst_port: 80
+                watchlist_match: src
+                direction: outbound
+                tcp_flags: S
+                packet_size: 100
+      responses:
+        "201":
+          description: Alertă salvată
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: created
+        "400":
+          description: JSON invalid sau validare eșuată
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid_json:
+                  value:
+                    code: invalid_json
+                    message: request body must be valid JSON
+                validation:
+                  value:
+                    code: validation_failed
+                    message: "validation: agent_id is required"
+        "500":
+          description: Eroare la scrierea pe disc
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: validation_failed
+        message:
+          type: string
+        details:
+          type: string
+
+    NetworkAlertEvent:
+      type: object
+      required:
+        - timestamp
+        - protocol
+        - src_ip
+        - dst_ip
+        - watchlist_match
+        - direction
+        - tcp_flags
+        - packet_size
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        protocol:
+          type: string
+          example: TCP
+        src_ip:
+          type: string
+          format: ipv4
+        src_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        dst_ip:
+          type: string
+          format: ipv4
+        dst_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        port_name:
+          type: string
+        watchlist_match:
+          type: string
+          example: src
+        direction:
+          type: string
+          example: outbound
+        tcp_flags:
+          type: string
+          example: S
+        packet_size:
+          type: integer
+          minimum: 0
+
+    NetworkAlert:
+      type: object
+      required:
+        - agent_id
+        - exported_at
+        - event
+      properties:
+        agent_id:
+          type: string
+        exported_at:
+          type: string
+          format: date-time
+        event:
+          $ref: "#/components/schemas/NetworkAlertEvent"

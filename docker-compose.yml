@@ -6,7 +6,8 @@ services:
     env_file: .env
     environment:
       SERVER_PORT: ${SERVER_PORT:-8080}
-      NETWORK_ALERTS_STORAGE_PATH: ${NETWORK_ALERTS_STORAGE_PATH:-/root/data/network_alerts.jsonl}
+      # Container path; do not use host .env here (local dev uses repo-relative paths).
+      NETWORK_ALERTS_STORAGE_PATH: /root/data/network_alerts.jsonl
     ports:
       - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     volumes:
